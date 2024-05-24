@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MultiplayerGame</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            background-color: #f0f0f0;
+        }
+        .players {
+            position: absolute;
+            top: 0;
+            right: 0;
+            list-style-type: none;
+            padding: 0;
+            margin: 0;
+        }
+        .players li {
+            padding: 10px;
+            background-color: #f0f0f0;
+            border: 1px solid black;
+            margin: 5px;
+        }
+        .heading, .score {
+            text-align: center;
+        }
+        canvas {
+            border: 1px solid black;
+            margin-top: 20px;
+        }
+    </style>
+</head>
+<body>
+    <h1 class="heading">First to 20 wins</h1>
+    <h1 class="score">Score: 0</h1>
+    <ul class="players"></ul>
+    <canvas id="gameCanvas" width="800" height="600"></canvas>
+    <h4>A game Created by Fahad D to Test Multiplayer real time connections using websockets</h4>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script>
+        const socket = io();
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+    
+        let playerId = null;
+        const players = {};
+        let coins = [];
+        let playerName = prompt("Enter your name:");
+
+        socket.on('connect', () => {
+            console.log('Connected to server');
+            socket.emit('newPlayer', { name: playerName });
+        });
+    
+        socket.on('initPlayers', (serverPlayers) => {
+            Object.keys(serverPlayers).forEach(id => {
+                players[id] = serverPlayers[id];
+            });
+            playerId = socket.id;
+        });
+    
+        socket.on('initCoins', (serverCoins) => {
+            coins = serverCoins;
+        });
+    
+        socket.on('playerConnected', (playerData) => {
+            players[playerData.id] = playerData;
+        });
+    
+        socket.on('playerDisconnected', (playerId) => {
+            delete players[playerId];
+        });
+    
+        socket.on('playerMoved', (playerData) => {
+            players[playerData.id] = playerData;
+        });
+    
+        socket.on('updateScore', (data) => {
+            const gameover = false;
+            if (players[data.playerId]) {
+                players[data.playerId].score = data.score;
+                if (data.playerId === playerId) {
+                    const scoreElement = document.querySelector('.score');
+                    scoreElement.innerHTML = `Score: ${data.score}`;
+                    if (data.score >= 20) {
+                        gameover = true;
+                    }
+                }
+            }
+            if (gameover) {
+                alert(data.playerId + ' wins!');
+            }
+        });
+    
+        socket.on('spawnCoins', (serverCoins) => {
+            coins = serverCoins;
+        });
+    
+        function interpolatePlayerPositions() {
+            const lerp = (a, b, t) => a + (b - a) * t;
+            const smoothingFactor = 0.1;
+    
+            for (const id in players) {
+                if (players.hasOwnProperty(id)) {
+                    const player = players[id];
+                    player.renderX = lerp(player.renderX || player.x, player.x, smoothingFactor);
+                    player.renderY = lerp(player.renderY || player.y, player.y, smoothingFactor);
+                }
+            }
+        }
+    
+        function drawPlayer(player) {
+            ctx.fillStyle = player.color;
+            ctx.fillRect(player.renderX, player.renderY, player.width, player.height);
+        }
+    
+        function draw() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            interpolatePlayerPositions();
+            for (const id in players) {
+                if (players.hasOwnProperty(id)) {
+                    drawPlayer(players[id]);
+                }
+            }
+            drawCoins();
+            requestAnimationFrame(draw);
+        }
+    
+        function drawCoins() {
+            coins.forEach(coin => {
+                ctx.fillStyle = coin.color;
+                ctx.fillRect(coin.x, coin.y, coin.width, coin.height);
+            });
+        }
+    
+        function movePlayer(event) {
+            const movement = { x: 0, y: 0, id: playerId };
+    
+            switch (event.key) {
+                case 'ArrowUp':
+                    movement.y = -10;
+                    break;
+                case 'ArrowDown':
+                    movement.y = 10;
+                    break;
+                case 'ArrowLeft':
+                    movement.x = -10;
+                    break;
+                case 'ArrowRight':
+                    movement.x = 10;
+                    break;
+            }
+            players[playerId].x += movement.x;
+            players[playerId].y += movement.y;
+    
+            socket.emit('playerMoved', players[playerId]);
+        }
+    
+        document.addEventListener('keydown', movePlayer);
+        draw();
+    </script>
+</body>
+</html>
